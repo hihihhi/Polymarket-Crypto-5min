@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import numpy as np
 import pandas as pd
@@ -59,7 +59,7 @@ def load_markets(path: str | Path) -> pd.DataFrame:
     return frame
 
 
-def load_candles(path: str | Path) -> pd.DataFrame:
+def load_candles(path: str | Path | BinaryIO) -> pd.DataFrame:
     frame = pd.read_csv(path)
     if "ts" not in frame.columns:
         raise ValueError("candle CSV must have a ts column")
@@ -91,7 +91,7 @@ def load_candles(path: str | Path) -> pd.DataFrame:
             "legacy_binance_open_time_shifted_to_close_available_at",
         }
         observed = set(semantics.dropna().astype(str).unique())
-        if not observed or not observed.issubset(allowed):
+        if not observed or not observed.issubset(allowed) or not semantics.isin(allowed).all():
             raise ValueError(f"unsupported candle timestamp semantics: {sorted(observed)}")
         if "available_at" in frame.columns:
             frame["available_at"] = pd.to_datetime(frame["available_at"], utc=True, errors="coerce")
@@ -102,6 +102,12 @@ def load_candles(path: str | Path) -> pd.DataFrame:
         for col in ("open_ts", "close_ts"):
             if col in frame.columns:
                 frame[col] = pd.to_datetime(frame[col], utc=True, errors="coerce")
+    if "close_ts" in frame.columns:
+        # A declaration alone cannot move the final candle value before its supplied close clock.
+        earliest = frame["close_ts"] + pd.to_timedelta(1, unit="ms")
+        invalid = earliest.isna() | frame["available_at"].isna() | frame["available_at"].lt(earliest)
+        if invalid.any():
+            raise ValueError("candle available_at must be at or after close_ts + 1 ms on every row")
     for col in ["open", "high", "low", "close", "volume"]:
         if col in frame.columns:
             frame[col] = pd.to_numeric(frame[col], errors="coerce")

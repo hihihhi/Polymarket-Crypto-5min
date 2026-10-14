@@ -1,0 +1,5 @@
+condition_id,start_dt,end_dt,snapshot_dt,up_asset_id,down_asset_id
+synthetic-m1,2026-01-01T12:00:00Z,2026-01-01T12:05:00Z,2026-01-01T12:04:15Z,synthetic-up,synthetic-down
+synthetic-m1,2026-01-01T12:00:00Z,2026-01-01T12:05:00Z,2026-01-01T12:04:59Z,synthetic-up,synthetic-down
+synthetic-m1,2026-01-01T12:00:00Z,2026-01-01T12:05:00Z,2026-01-01T12:02:59Z,synthetic-up,synthetic-down
+synthetic-m1,2026-01-01T12:00:00Z,2026-01-01T12:05:00Z,2026-01-01T12:04:00Z,synthetic-up,synthetic-down

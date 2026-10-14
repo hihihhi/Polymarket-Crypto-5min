@@ -1,0 +1,9 @@
+condition_id,asset_id,ts,p
+synthetic-up-trigger,up-1,2026-01-01T12:04:00Z,0.50
+synthetic-up-trigger,up-1,2026-01-01T12:04:25Z,0.65
+synthetic-down-stop,down-2,2026-01-01T12:09:00Z,0.70
+synthetic-down-stop,down-2,2026-01-01T12:09:25Z,0.60
+synthetic-no-path,up-3,2026-01-01T12:14:00Z,0.40
+synthetic-no-path,up-3,2026-01-01T12:15:00Z,0.99
+synthetic-no-entry,up-4,2026-01-01T12:19:00Z,0.50
+synthetic-no-entry,down-4,2026-01-01T12:14:59Z,0.20

@@ -61,6 +61,10 @@ Where in the code: `polymarket_crypto_5min/clients.py` (`klines_to_frame`), `pol
 
 ## Why this exists
 
+For a compact offline example, [compare holding with one fixed exit policy](docs/EVENT_REPLAY.md)
+on the same timestamp-audited entries. It executes the library on editable synthetic
+CSVs and exposes exclusions, event timing and modeled costs without a strategy sweep.
+
 A backtest of five-minute markets is only as honest as its clock: a feature that is known a minute late, or a
 calibration that has seen the test fold, turns a losing rule into a winning one. This project builds the backtest so
 that every feature, calibration and rule choice can be checked against the time it was actually available.
@@ -139,10 +143,29 @@ hash, the run manifest and the equity chart are in [docs/results.md](docs/result
 
 ## Quick start
 
+For a small offline investigation, audit the supplied candle/own-token observations at explicit
+decision times. This uses the actual feature joins and explains missing or stale input; the
+committed example is synthetic. [CSV contracts, report fields and limitations](docs/SNAPSHOT_AUDIT.md).
+
+```bash
+uv sync --extra dev --frozen
+uv run python scripts/audit_snapshots.py \
+  --candles examples/snapshot_audit/candles.csv \
+  --decisions examples/snapshot_audit/decisions.csv \
+  --prices examples/snapshot_audit/prices.csv \
+  --max-candle-age-seconds 30
+# summary: 4 decisions, 8 side rows, 2 usable, 6 blocked
+```
+
+The loader checks supplied candle completion clocks against declared availability. The audit
+reports each joined timestamp/value and input hashes; it performs no strategy sweep or order.
+
+To download and run the existing historical research workflow:
+
 ```bash
 git clone https://github.com/oscar-chw/Polymarket-Crypto-5min.git && cd Polymarket-Crypto-5min
 uv sync --python 3.12 --extra dev --frozen
-uv run pytest -q                                          # expect: 45 passed
+uv run pytest -q                                          # offline tests
 uv run python scripts/download_history.py --max-pages 2   # bounded public-data API-shape check
 uv run python scripts/run_btc_5m_full_history_walk_forward.py --initial-capital 2000 --stake 10 \
   --train-markets 400 --test-markets 100 --price-source both   # full download, base walk-forward

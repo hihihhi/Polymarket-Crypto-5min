@@ -1,0 +1,5 @@
+condition_id,realized_direction,outcome_available_at
+synthetic-up-trigger,DOWN,2026-01-01T12:05:30Z
+synthetic-down-stop,DOWN,2026-01-01T12:10:30Z
+synthetic-no-path,UP,2026-01-01T12:15:30Z
+synthetic-no-entry,DOWN,2026-01-01T12:20:30Z

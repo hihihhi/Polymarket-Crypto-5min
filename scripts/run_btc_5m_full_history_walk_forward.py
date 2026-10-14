@@ -26,7 +26,6 @@ from polymarket_crypto_5min.features import build_training_frame, load_candles, 
 from polymarket_crypto_5min.metrics import equity_curve, performance_metrics
 from polymarket_crypto_5min.walk_forward import WalkForwardConfig, make_side_candidates, walk_forward_backtest
 
-
 STALE_OUTPUTS = (
     "feature_frame.csv",
     "side_candidates.csv",

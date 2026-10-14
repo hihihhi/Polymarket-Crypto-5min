@@ -14,11 +14,13 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
+from decimal import Decimal
 from itertools import product
 
 import numpy as np
 import pandas as pd
 
+from .config import DEFAULT_CRYPTO_TAKER_FEE_RATE
 from .features import shares_for_stake, taker_fee_per_share
 from .walk_forward import WalkForwardConfig, WalkForwardRule, calibrate_candidates, generate_rule_grid, rule_mask
 
@@ -47,9 +49,8 @@ DEFAULT_EXIT_POLICY_GRID = {
     "max_hold_seconds": (10, 20, 30, None),
 }
 
-# A max-hold policy whose hold window has no price point cannot exit, so it is
-# settled. It gets its own reason so it is not read as a chosen hold or a
-# risk-reducing exit; the grid deliberately excludes pure hold-to-settlement.
+# A timer before settlement with no subsequent price cannot execute. Keep that
+# fallback distinct from a timer at/after settlement, which simply holds.
 MAX_HOLD_NO_PRICE = "MAX_HOLD_NO_PRICE"
 SETTLED_EXIT_REASONS = frozenset({"HOLD_TO_SETTLEMENT", MAX_HOLD_NO_PRICE})
 
@@ -131,14 +132,17 @@ def simulate_exit_policy(
     policy: ExitPolicy,
     *,
     stake_usdc: float = 10.0,
+    entry_fee_rate: float = DEFAULT_CRYPTO_TAKER_FEE_RATE,
 ) -> pd.DataFrame:
     """Simulate one exit policy for a set of already-selected entries.
 
     ``entries`` should be candidate rows selected by a walk-forward entry rule.
     The function emits one row per entry, even if no post-entry price history is
-    available. Missing path rows settle; under a max-hold policy they are
-    marked ``MAX_HOLD_NO_PRICE``.
+    available. A timer before settlement with no subsequent print is marked
+    ``MAX_HOLD_NO_PRICE``; a timer at/after settlement is a hold.
     """
+    if not math.isfinite(entry_fee_rate) or entry_fee_rate < 0:
+        raise ValueError("entry_fee_rate must be finite and nonnegative")
     if entries.empty:
         return pd.DataFrame()
     hist_by_asset = group_price_history(price_history)
@@ -148,7 +152,9 @@ def simulate_exit_policy(
     selected["end_dt"] = pd.to_datetime(selected["end_dt"], utc=True, errors="coerce")
     records: list[dict[str, object]] = []
     for _, entry in selected.iterrows():
-        records.append(_simulate_one_exit(entry, hist_by_asset, policy, stake_usdc=stake_usdc))
+        records.append(
+            _simulate_one_exit(entry, hist_by_asset, policy, stake_usdc=stake_usdc, entry_fee_rate=entry_fee_rate)
+        )
     return pd.DataFrame(records).sort_values(["entry_dt", "condition_id", "side"]).reset_index(drop=True)
 
 
@@ -158,10 +164,11 @@ def _simulate_one_exit(
     policy: ExitPolicy,
     *,
     stake_usdc: float,
+    entry_fee_rate: float,
 ) -> dict[str, object]:
     entry_price = float(entry["market_price"])
-    entry_fee = float(taker_fee_per_share(entry_price))
-    shares = shares_for_stake(stake_usdc, entry_price)
+    entry_fee = float(taker_fee_per_share(entry_price, fee_rate=entry_fee_rate))
+    shares = shares_for_stake(stake_usdc, entry_price, fee_rate=entry_fee_rate)
     entry_dt = pd.to_datetime(entry["snapshot_dt"], utc=True)
     end_dt = pd.to_datetime(entry["end_dt"], utc=True)
     side = str(entry["side"])
@@ -173,17 +180,24 @@ def _simulate_one_exit(
     if policy.max_hold_seconds is not None:
         deadline = min(deadline, entry_dt + pd.Timedelta(seconds=int(policy.max_hold_seconds)))
 
-    path = _slice_exit_path(hist_by_asset, condition_id, asset_id, entry_dt, deadline, end_dt)
+    # A timer requests an exit at deadline; its fill cannot use a quote from before that request.
+    path = _slice_exit_path(hist_by_asset, condition_id, asset_id, entry_dt, end_dt, end_dt)
 
     exit_reason = "HOLD_TO_SETTLEMENT"
     exit_dt = end_dt
     exit_price = 1.0 if won else 0.0
     exit_fee = 0.0
     path_points_seen = int(len(path))
+    path_points_processed = 0
 
     for _, point in path.iterrows():
+        path_points_processed += 1
         price = float(point["p"])
-        reason = _exit_reason(entry_price, price, policy)
+        reason = (
+            "MAX_HOLD_EXIT"
+            if policy.max_hold_seconds is not None and point["ts"] >= deadline
+            else _exit_reason(entry_price, price, policy)
+        )
         if reason is not None:
             exit_reason = reason
             exit_dt = pd.to_datetime(point["ts"], utc=True)
@@ -191,14 +205,8 @@ def _simulate_one_exit(
             exit_fee = float(taker_fee_per_share(exit_price, fee_rate=policy.exit_fee_rate))
             break
     else:
-        if policy.max_hold_seconds is not None and path.empty:
+        if policy.max_hold_seconds is not None and deadline < end_dt:
             exit_reason = MAX_HOLD_NO_PRICE
-        elif policy.max_hold_seconds is not None:
-            last = path.iloc[-1]
-            exit_reason = "MAX_HOLD_EXIT"
-            exit_dt = pd.to_datetime(last["ts"], utc=True)
-            exit_price = float(last["p"])
-            exit_fee = float(taker_fee_per_share(exit_price, fee_rate=policy.exit_fee_rate))
 
     if exit_reason in SETTLED_EXIT_REASONS:
         pnl_per_share = (1.0 - entry_price - entry_fee) if won else (-entry_price - entry_fee)
@@ -233,6 +241,7 @@ def _simulate_one_exit(
         "realized_settlement": realized_settlement,
         "loss_trade": pnl_usdc < 0,
         "path_points_seen": path_points_seen,
+        "path_points_processed": path_points_processed,
         "take_profit": policy.take_profit,
         "target_price": policy.target_price,
         "stop_loss": policy.stop_loss,
@@ -274,11 +283,14 @@ def _slice_exit_path(
 
 
 def _exit_reason(entry_price: float, price: float, policy: ExitPolicy) -> str | None:
-    if policy.stop_loss is not None and price <= entry_price - policy.stop_loss:
+    # Decimal input thresholds must include equality (0.7 - 0.05 == 0.65).
+    # An epsilon would incorrectly trigger on distinct adjacent prices.
+    quoted, entry = Decimal(str(price)), Decimal(str(entry_price))
+    if policy.stop_loss is not None and quoted <= entry - Decimal(str(policy.stop_loss)):
         return "STOP_LOSS"
-    if policy.target_price is not None and price >= policy.target_price:
+    if policy.target_price is not None and quoted >= Decimal(str(policy.target_price)):
         return "TARGET_PRICE"
-    if policy.take_profit is not None and price >= entry_price + policy.take_profit:
+    if policy.take_profit is not None and quoted >= entry + Decimal(str(policy.take_profit)):
         return "TAKE_PROFIT"
     return None
 

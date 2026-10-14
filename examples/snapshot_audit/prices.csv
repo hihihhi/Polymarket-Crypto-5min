@@ -1,0 +1,5 @@
+condition_id,asset_id,ts,p
+synthetic-m1,synthetic-up,2026-01-01T12:04:00Z,0.60
+synthetic-m1,synthetic-up,2026-01-01T12:04:16Z,0.99
+synthetic-m1,synthetic-down,2026-01-01T11:59:59Z,0.40
+synthetic-m1,synthetic-down,2026-01-01T12:04:40Z,0.41

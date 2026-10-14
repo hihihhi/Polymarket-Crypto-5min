@@ -1,0 +1,5 @@
+decision_id,condition_id,side,start_dt,end_dt,snapshot_dt,up_asset_id,down_asset_id
+take-profit,synthetic-up-trigger,UP,2026-01-01T12:00:00Z,2026-01-01T12:05:00Z,2026-01-01T12:04:15Z,up-1,down-1
+stop-loss,synthetic-down-stop,DOWN,2026-01-01T12:05:00Z,2026-01-01T12:10:00Z,2026-01-01T12:09:15Z,up-2,down-2
+no-path,synthetic-no-path,UP,2026-01-01T12:10:00Z,2026-01-01T12:15:00Z,2026-01-01T12:14:15Z,up-3,down-3
+no-entry,synthetic-no-entry,DOWN,2026-01-01T12:15:00Z,2026-01-01T12:20:00Z,2026-01-01T12:19:15Z,up-4,down-4
